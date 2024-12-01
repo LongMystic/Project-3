@@ -1,0 +1,8 @@
+*.csv
+data/
+__pycache__
+main.py
+test.py
+.idea
+*.h5
+*.pkl
