@@ -1,3 +1,5 @@
+import time
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -6,19 +8,19 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 import joblib
 import json
+from validator import validate_date, validate_price, validate_warehouse_capacity, validate_truck_capacity
 
 # from keras.api.models import load_model
 
 connection = pymysql.connect(
     host='localhost',
     user='root',
-    password='Liquid@123',
+    password='juggernautlong2003',
     database='prj3',
     cursorclass=pymysql.cursors.DictCursor
 )
 
 st.set_page_config("Warehouse Forecasting")
-
 
 # @st.cache_resource
 # def load_my_model():
@@ -44,6 +46,8 @@ def insert_row_to_db():
     cursor = connection.cursor()
     cursor.execute(sql)
     connection.commit()
+
+    return 1
 
 
 def fetch_data():
@@ -72,9 +76,33 @@ def add_row():
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Save"):
-            insert_row_to_db()
-            st.session_state.add_row = False
-            st.rerun()  # Refresh the app to display the updated DataFrame
+            # validate data
+            code, message = validate_date(st.session_state.date)
+            if code == -1:
+                st.error(message)
+                return
+
+            code, message = validate_price(st.session_state.price)
+            if code == -1:
+                st.error(message)
+                return
+
+            code, message = validate_warehouse_capacity(st.session_state.warehouse_capacity)
+            if code == -1:
+                st.error(message)
+                return
+
+            code, message = validate_truck_capacity(st.session_state.truck_capacity)
+            if code == -1:
+                st.error(message)
+                return
+
+            if code == 0:
+                # insert_row_to_db()
+                st.info("Add row successfully!")
+                time.sleep(2)
+                st.session_state.add_row = False
+                st.rerun()  # Refresh the app to display the updated DataFrame
     with col2:
         if st.button("Cancel"):
             st.session_state.add_row = False  # Close modal without saving
@@ -106,7 +134,7 @@ def page_1():
     st.write("### Data:")
     st.dataframe(st.session_state.df)
 
-    ### 1. ADD ROW
+    # 1. ADD ROW
 
     # Button to trigger the "modal"
     if st.button("Add row"):
