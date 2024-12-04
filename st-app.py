@@ -20,7 +20,7 @@ connection = pymysql.connect(
     cursorclass=pymysql.cursors.DictCursor
 )
 
-st.set_page_config("Warehouse Forecasting")
+st.set_page_config("Warehouse Forecasting", layout="wide")
 
 @st.cache_resource
 def load_lstm_model():
@@ -122,6 +122,7 @@ def add_row():
 
 
 def visualize(df, df_pred=None):
+    df = df.tail(100)
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(df['date'], df['warehouse_capacity'], label='warehouse_capacity', marker='o')
     ax.plot(df['date'], df['truck_capacity'], label='truck_capacity', marker='x')
@@ -141,38 +142,29 @@ def visualize(df, df_pred=None):
     return fig
 
 
-def predict(df, model, scaler: MinMaxScaler, cur_date):
-    scaled_df = scaler.transform(df.drop(['id', 'date'], axis=1))
-    scaled_df = scaled_df[-14:, :]
+def predict(df, model, scaler1: MinMaxScaler, cur_date):
+    # Predict the next 14 days
+    df = df[['date', 'warehouse_capacity', 'truck_capacity']]
+    df.set_index('date', inplace=True)
+    scaler = MinMaxScaler()
+    scaled_data = scaler.fit_transform(df)
+    last_sequence = scaled_data[-5:]
+    predicted = []
 
-    # X = []
-    # for i in range(30):
-    #     X.append(scaled_df[])
-    X = [scaled_df]
-    X = np.array(X)
+    for _ in range(14):
+        prediction = model.predict(last_sequence[np.newaxis, :, :])
+        predicted.append(prediction[0])
+        last_sequence = np.vstack((last_sequence[1:], prediction))
 
-    predictions = []
-    for _ in range(14):  # Predict for the next 14 days
-        next_pred = model.predict(X[-30:, :, :])
-        predictions.append(sc.inverse_transform(next_pred))
-        # Update the sequence with the new prediction
-        X = np.append([next_pred], X, axis=1)
+    predicted = scaler.inverse_transform(predicted)
 
-    data = {
-        'date': [],
-        'price': [],
-        'warehouse_capacity': [],
-        'truck_capacity': []
-    }
-
-    for i in range(14):
-        data['date'].append(cur_date)
-        data['price'].append(int(predictions[i][0][0]))
-        data['warehouse_capacity'].append(int(predictions[i][0][1]))
-        data['truck_capacity'].append(int(predictions[i][0][2]))
-        cur_date = cur_date + pd.Timedelta(days=1)
-
-    return pd.DataFrame(data)
+    predicted_df = pd.DataFrame(predicted, columns=df.columns)
+    predicted_df.index = pd.date_range(start=df.index[-1] + pd.Timedelta(days=1), periods=14)
+    predicted_df['warehouse_capacity'] = predicted_df['warehouse_capacity'].astype(int)
+    predicted_df['truck_capacity'] = predicted_df['truck_capacity'].astype(int)
+    predicted_df = predicted_df.reset_index()
+    predicted_df.rename(columns={'index': 'date'}, inplace=True)
+    return predicted_df
 
 
 def toggle_figure():
@@ -227,14 +219,31 @@ def page_1():
         st.session_state.rnn_fig = rnn_fig
         st.session_state.gru_fig = gru_fig
 
-        st.write("### Prediction using LSTM model")
-        st.pyplot(st.session_state.lstm_fig)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("### Prediction using LSTM model")
+            st.pyplot(st.session_state.lstm_fig)
 
-        st.write("### Prediction using RNN model")
-        st.pyplot(st.session_state.rnn_fig)
+        with col2:
+            st.dataframe(df_pred_lstm[['date', 'warehouse_capacity', 'truck_capacity']])
 
-        st.write("### Prediction using GRU model")
-        st.pyplot(st.session_state.gru_fig)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("### Prediction using RNN model")
+            st.pyplot(st.session_state.rnn_fig)
+
+        with col2:
+            st.dataframe(df_pred_rnn[['date', 'warehouse_capacity', 'truck_capacity']])
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("### Prediction using GRU model")
+            st.pyplot(st.session_state.gru_fig)
+
+
+        with col2:
+            st.dataframe(df_pred_gru[['date', 'warehouse_capacity', 'truck_capacity']])
 
 
 def page_2():
