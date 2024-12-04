@@ -22,6 +22,7 @@ connection = pymysql.connect(
 
 st.set_page_config("Warehouse Forecasting", layout="wide")
 
+
 @st.cache_resource
 def load_lstm_model():
     return load_model("model_lstm.h5")
@@ -142,9 +143,37 @@ def visualize(df, df_pred=None):
     return fig
 
 
+def evaluate(avg_30, avg_5, val):
+    if avg_30 < avg_5:
+        if avg_30 <= val <= avg_5:
+            return 'Sufficiency'
+        elif val > avg_5:
+            return 'Plenty'
+        elif val < avg_30:
+            return 'Shortage'
+    else:
+        if avg_5 <= val <= avg_30:
+            return 'Sufficiency'
+        elif val > avg_30:
+            return 'Plenty'
+        elif val < avg_5:
+            return 'Shortage'
+
+
 def predict(df, model, scaler1: MinMaxScaler, cur_date):
     # Predict the next 14 days
     df = df[['date', 'warehouse_capacity', 'truck_capacity']]
+
+    average_last_30 = df.iloc[-30:].mean()
+
+    average_last_5 = df.iloc[-5:].mean()
+
+    average_warehouse_last_30 = average_last_30['warehouse_capacity']
+    average_truck_last_30 = average_last_30['truck_capacity']
+
+    average_warehouse_last_5 = average_last_5['warehouse_capacity']
+    average_truck_last_5 = average_last_5['truck_capacity']
+
     df.set_index('date', inplace=True)
     scaler = MinMaxScaler()
     scaled_data = scaler.fit_transform(df)
@@ -165,6 +194,15 @@ def predict(df, model, scaler1: MinMaxScaler, cur_date):
     predicted_df['truck_capacity'] = predicted_df['truck_capacity'].astype(int)
     predicted_df = predicted_df.reset_index()
     predicted_df.rename(columns={'index': 'date'}, inplace=True)
+    warehouse_evaluation = []
+    truck_evaluation = []
+    for i in range(len(predicted_df)):
+        warehouse_evaluation.append(evaluate(average_warehouse_last_30, average_warehouse_last_5,
+                                             predicted_df.iloc[i]['warehouse_capacity']))
+        truck_evaluation.append(evaluate(average_truck_last_30, average_truck_last_5,
+                                         predicted_df.iloc[i]['truck_capacity']))
+    predicted_df['warehouse_evaluation'] = warehouse_evaluation
+    predicted_df['truck_evaluation'] = truck_evaluation
     return predicted_df
 
 
@@ -208,9 +246,9 @@ def page_1():
 
     current_date = pd.to_datetime(st.session_state.df['date']).max()
     if st.session_state.predict:
-        df_pred_lstm = predict(st.session_state.df, model_lstm, sc , cur_date=current_date)
-        df_pred_rnn = predict(st.session_state.df, model_rnn, sc,  cur_date=current_date)
-        df_pred_gru = predict(st.session_state.df, model_gru, sc,  cur_date=current_date)
+        df_pred_lstm = predict(st.session_state.df, model_lstm, sc, cur_date=current_date)
+        df_pred_rnn = predict(st.session_state.df, model_rnn, sc, cur_date=current_date)
+        df_pred_gru = predict(st.session_state.df, model_gru, sc, cur_date=current_date)
 
         lstm_fig = visualize(st.session_state.df, df_pred_lstm)
         rnn_fig = visualize(st.session_state.df, df_pred_rnn)
@@ -228,7 +266,6 @@ def page_1():
         with col2:
             st.dataframe(df_pred_lstm[['date', 'warehouse_capacity', 'truck_capacity']])
 
-
         col1, col2 = st.columns(2)
         with col1:
             st.write("### Prediction using RNN model")
@@ -241,7 +278,6 @@ def page_1():
         with col1:
             st.write("### Prediction using GRU model")
             st.pyplot(st.session_state.gru_fig)
-
 
         with col2:
             st.dataframe(df_pred_gru[['date', 'warehouse_capacity', 'truck_capacity']])
