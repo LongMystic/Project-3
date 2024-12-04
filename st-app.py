@@ -122,7 +122,7 @@ def add_row():
 
 
 def visualize(df, df_pred=None):
-    df = df.tail(100)
+    df = df.tail(30)
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(df['date'], df['warehouse_capacity'], label='warehouse_capacity', marker='o')
     ax.plot(df['date'], df['truck_capacity'], label='truck_capacity', marker='x')
@@ -151,7 +151,8 @@ def predict(df, model, scaler1: MinMaxScaler, cur_date):
     last_sequence = scaled_data[-5:]
     predicted = []
 
-    for _ in range(14):
+    predict_days = 30
+    for _ in range(predict_days):
         prediction = model.predict(last_sequence[np.newaxis, :, :])
         predicted.append(prediction[0])
         last_sequence = np.vstack((last_sequence[1:], prediction))
@@ -159,7 +160,7 @@ def predict(df, model, scaler1: MinMaxScaler, cur_date):
     predicted = scaler.inverse_transform(predicted)
 
     predicted_df = pd.DataFrame(predicted, columns=df.columns)
-    predicted_df.index = pd.date_range(start=df.index[-1] + pd.Timedelta(days=1), periods=14)
+    predicted_df.index = pd.date_range(start=df.index[-1] + pd.Timedelta(days=1), periods=predict_days)
     predicted_df['warehouse_capacity'] = predicted_df['warehouse_capacity'].astype(int)
     predicted_df['truck_capacity'] = predicted_df['truck_capacity'].astype(int)
     predicted_df = predicted_df.reset_index()
