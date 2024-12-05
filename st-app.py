@@ -164,9 +164,9 @@ def predict(df, model, scaler1: MinMaxScaler, cur_date):
     # Predict the next 14 days
     df = df[['date', 'warehouse_capacity', 'truck_capacity']]
 
-    average_last_30 = df.iloc[-30:].mean()
+    average_last_30 = df[['warehouse_capacity', 'truck_capacity']].iloc[-30:].mean()
 
-    average_last_5 = df.iloc[-5:].mean()
+    average_last_5 = df[['warehouse_capacity', 'truck_capacity']].iloc[-5:].mean()
 
     average_warehouse_last_30 = average_last_30['warehouse_capacity']
     average_truck_last_30 = average_last_30['truck_capacity']
@@ -180,7 +180,7 @@ def predict(df, model, scaler1: MinMaxScaler, cur_date):
     last_sequence = scaled_data[-5:]
     predicted = []
 
-    predict_days = 30
+    predict_days = 14
     for _ in range(predict_days):
         prediction = model.predict(last_sequence[np.newaxis, :, :])
         predicted.append(prediction[0])
@@ -264,7 +264,7 @@ def page_1():
             st.pyplot(st.session_state.lstm_fig)
 
         with col2:
-            st.dataframe(df_pred_lstm[['date', 'warehouse_capacity', 'truck_capacity']])
+            st.dataframe(df_pred_lstm[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation', 'truck_evaluation']])
 
         col1, col2 = st.columns(2)
         with col1:
@@ -272,7 +272,7 @@ def page_1():
             st.pyplot(st.session_state.rnn_fig)
 
         with col2:
-            st.dataframe(df_pred_rnn[['date', 'warehouse_capacity', 'truck_capacity']])
+            st.dataframe(df_pred_rnn[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation', 'truck_evaluation']])
 
         col1, col2 = st.columns(2)
         with col1:
@@ -280,7 +280,7 @@ def page_1():
             st.pyplot(st.session_state.gru_fig)
 
         with col2:
-            st.dataframe(df_pred_gru[['date', 'warehouse_capacity', 'truck_capacity']])
+            st.dataframe(df_pred_gru[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation', 'truck_evaluation']])
 
 
 def page_2():
