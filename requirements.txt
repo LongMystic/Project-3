@@ -1,0 +1,11 @@
+plotly
+streamlit
+pandas
+numpy
+joblib
+scikit-learn
+matplotlib
+tensorflow
+keras
+pymysql
+faker

@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 import joblib
 import json
+import plotly.express as px
+import plotly.graph_objects as go
 from validator import validate_date, validate_price, validate_warehouse_capacity, validate_truck_capacity
 
 from keras.models import load_model
@@ -22,6 +24,7 @@ connection = pymysql.connect(
 
 st.set_page_config("Warehouse Forecasting", layout="wide")
 
+REQUIRED_COLUMNS = ["warehouse_capacity", "truck_capacity", "date"]
 
 @st.cache_resource
 def load_lstm_model():
@@ -122,6 +125,59 @@ def add_row():
             st.rerun()
 
 
+def visualize_with_ex(df, df_pred=None):
+    df = df.tail(30)
+
+    # Create the base figure
+    fig = go.Figure()
+
+    # Add lines for warehouse and truck capacity
+    fig.add_trace(go.Scatter(
+        x=df['date'],
+        y=df['warehouse_capacity'],
+        mode='lines+markers',
+        name='warehouse_capacity',
+        marker=dict(symbol='circle')
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=df['date'],
+        y=df['truck_capacity'],
+        mode='lines+markers',
+        name='truck_capacity',
+        marker=dict(symbol='x')
+    ))
+
+    # Add prediction lines if provided
+    if df_pred is not None:
+        fig.add_trace(go.Scatter(
+            x=df_pred['date'],
+            y=df_pred['warehouse_capacity'],
+            mode='lines+markers',
+            name='warehouse_capacity_prediction',
+            marker=dict(symbol='circle')
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=df_pred['date'],
+            y=df_pred['truck_capacity'],
+            mode='lines+markers',
+            name='truck_capacity_prediction',
+            marker=dict(symbol='x')
+        ))
+
+    # Update layout for better appearance
+    fig.update_layout(
+        title='Capacity Over Time',
+        xaxis_title='Date',
+        yaxis_title='Value',
+        legend_title='Legend',
+        xaxis=dict(tickangle=45),
+        template='plotly_white'
+    )
+
+    return fig
+
 def visualize(df, df_pred=None):
     df = df.tail(30)
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -206,6 +262,26 @@ def predict(df, model, scaler1: MinMaxScaler, cur_date):
     return predicted_df
 
 
+def upload_file():
+    uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
+
+    if uploaded_file is not None:
+        try:
+            df = pd.read_csv(uploaded_file)
+
+            missing_columns = [col for col in REQUIRED_COLUMNS if col not in df.columns]
+
+            if missing_columns:
+                st.error(f"The uploaded file is missing the following required columns: {', '.join(missing_columns)}")
+            else:
+                st.success("File uploaded successfully and contains all required columns!")
+                st.dataframe(df)
+        except Exception as e:
+            st.error(f"An error occurred while processing the file: {e}")
+    else:
+        st.info("Please upload a CSV file.")
+
+
 def toggle_figure():
     st.session_state.visualize = not st.session_state.visualize
 
@@ -221,25 +297,33 @@ def page_1():
 
     # 1. ADD ROW
 
-    # Button to trigger the "modal"
-    if st.button("Add row"):
-        st.session_state.add_row = True
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Add row"):
+            st.session_state.add_row = True
 
-    if st.session_state.get("add_row", False):
-        add_row()
+        if st.session_state.get("add_row", False):
+            add_row()
+    with col2:
+        if st.button("Upload a csv file"):
+            st.session_state.upload_file = True
+        if st.session_state.get("upload_file", False):
+            upload_file()
 
-    if st.button("Visualize"):
-        toggle_figure()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Visualize"):
+            toggle_figure()
 
-    if st.session_state.visualize:
-        fig = visualize(st.session_state.df)
+        if st.session_state.visualize:
+            fig = visualize_with_ex(st.session_state.df)
 
-        st.session_state.figure = fig
+            st.session_state.figure = fig
 
-        st.write('### Visualize:')
-        st.pyplot(st.session_state.figure)
+            st.write('### Visualize:')
+            st.plotly_chart(st.session_state.figure)
 
-        # st.rerun()
+            # st.rerun()
 
     if st.button("Predict"):
         toggle_predict()
@@ -250,9 +334,9 @@ def page_1():
         df_pred_rnn = predict(st.session_state.df, model_rnn, sc, cur_date=current_date)
         df_pred_gru = predict(st.session_state.df, model_gru, sc, cur_date=current_date)
 
-        lstm_fig = visualize(st.session_state.df, df_pred_lstm)
-        rnn_fig = visualize(st.session_state.df, df_pred_rnn)
-        gru_fig = visualize(st.session_state.df, df_pred_gru)
+        lstm_fig = visualize_with_ex(st.session_state.df, df_pred_lstm)
+        rnn_fig = visualize_with_ex(st.session_state.df, df_pred_rnn)
+        gru_fig = visualize_with_ex(st.session_state.df, df_pred_gru)
 
         st.session_state.lstm_fig = lstm_fig
         st.session_state.rnn_fig = rnn_fig
@@ -261,7 +345,7 @@ def page_1():
         col1, col2 = st.columns(2)
         with col1:
             st.write("### Prediction using LSTM model")
-            st.pyplot(st.session_state.lstm_fig)
+            st.plotly_chart(st.session_state.lstm_fig)
 
         with col2:
             st.dataframe(df_pred_lstm[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation', 'truck_evaluation']])
@@ -269,7 +353,7 @@ def page_1():
         col1, col2 = st.columns(2)
         with col1:
             st.write("### Prediction using RNN model")
-            st.pyplot(st.session_state.rnn_fig)
+            st.plotly_chart(st.session_state.rnn_fig)
 
         with col2:
             st.dataframe(df_pred_rnn[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation', 'truck_evaluation']])
@@ -277,7 +361,7 @@ def page_1():
         col1, col2 = st.columns(2)
         with col1:
             st.write("### Prediction using GRU model")
-            st.pyplot(st.session_state.gru_fig)
+            st.plotly_chart(st.session_state.gru_fig)
 
         with col2:
             st.dataframe(df_pred_gru[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation', 'truck_evaluation']])
@@ -310,6 +394,9 @@ def main():
 
     if 'predict' not in st.session_state:
         st.session_state.predict = False
+
+    if 'upload_file' not in st.session_state:
+        st.session_state.upload_file = False
 
     # st.sidebar.title("Navigation")
     # choice = st.sidebar.selectbox("Select an option", list(PAGES.keys()))
