@@ -7,20 +7,24 @@ import pymysql.cursors
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 import joblib
+import plotly.express as px
+import plotly.graph_objects as go
 import json
 from validator import validate_date, validate_price, validate_warehouse_capacity, validate_truck_capacity
 
-from keras.models import load_model
+from keras.api.models import load_model
 
 connection = pymysql.connect(
     host='localhost',
     user='root',
-    password='Liquid@123',
+    password='juggernautlong2003',
     database='prj3',
     cursorclass=pymysql.cursors.DictCursor
 )
 
 st.set_page_config("Warehouse Forecasting", layout="wide")
+
+REQUIRED_COLUMNS = ["warehouse_capacity", "truck_capacity", "date"]
 
 
 @st.cache_resource
@@ -50,15 +54,17 @@ def insert_row_to_db():
     sql = f"""
         INSERT INTO prj3.data (date, price, warehouse_capacity, truck_capacity)
         VALUE (
-            {st.session_state.date}
+            \'{st.session_state.date}\'
             , {st.session_state.price}
             , {st.session_state.warehouse_capacity}
             , {st.session_state.truck_capacity}
         );
     """
+    print(sql)
     cursor = connection.cursor()
     cursor.execute(sql)
     connection.commit()
+    st.session_state.df = fetch_data()
 
     return 1
 
@@ -90,7 +96,8 @@ def add_row():
     with col1:
         if st.button("Save"):
             # validate data
-            code, message = validate_date(st.session_state.date)
+            code, message = validate_date(st.session_state.date,
+                                          str(st.session_state.df.iloc[-1]['date']))
             if code == -1:
                 st.error(message)
                 return
@@ -111,7 +118,7 @@ def add_row():
                 return
 
             if code == 0:
-                # insert_row_to_db()
+                insert_row_to_db()
                 st.info("Add row successfully!")
                 time.sleep(2)
                 st.session_state.add_row = False
@@ -122,15 +129,69 @@ def add_row():
             st.rerun()
 
 
+def visualize_with_ex(df, df_pred=None):
+    df = df.tail(30)
+
+    # Create the base figure
+    fig = go.Figure()
+
+    # Add lines for warehouse and truck capacity
+    fig.add_trace(go.Scatter(
+        x=df['date'],
+        y=df['warehouse_capacity'],
+        mode='lines+markers',
+        name='warehouse_need',
+        marker=dict(symbol='circle')
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=df['date'],
+        y=df['truck_capacity'],
+        mode='lines+markers',
+        name='truck_need',
+        marker=dict(symbol='x')
+    ))
+
+    # Add prediction lines if provided
+    if df_pred is not None:
+        fig.add_trace(go.Scatter(
+            x=df_pred['date'],
+            y=df_pred['warehouse_capacity'],
+            mode='lines+markers',
+            name='warehouse_need_prediction',
+            marker=dict(symbol='circle')
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=df_pred['date'],
+            y=df_pred['truck_capacity'],
+            mode='lines+markers',
+            name='truck_need_prediction',
+            marker=dict(symbol='x')
+        ))
+
+    # Update layout for better appearance
+    fig.update_layout(
+        title='Capacity Over Time',
+        xaxis_title='Date',
+        yaxis_title='Value',
+        legend_title='Label',
+        xaxis=dict(tickangle=45),
+        template='plotly_white'
+    )
+
+    return fig
+
+
 def visualize(df, df_pred=None):
     df = df.tail(30)
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(df['date'], df['warehouse_capacity'], label='warehouse_capacity', marker='o')
-    ax.plot(df['date'], df['truck_capacity'], label='truck_capacity', marker='x')
+    ax.plot(df['date'], df['warehouse_capacity'], label='warehouse_need', marker='o')
+    ax.plot(df['date'], df['truck_capacity'], label='truck_need', marker='x')
 
     if df_pred is not None:
-        ax.plot(df_pred['date'], df_pred['warehouse_capacity'], label='warehouse_capacity_prediction', marker='o')
-        ax.plot(df_pred['date'], df_pred['truck_capacity'], label='truck_capacity_prediction', marker='x')
+        ax.plot(df_pred['date'], df_pred['warehouse_capacity'], label='warehouse_need_prediction', marker='o')
+        ax.plot(df_pred['date'], df_pred['truck_capacity'], label='truck_need_prediction', marker='x')
 
     # Adding labels and title
     ax.set_xlabel('Date')
@@ -194,6 +255,7 @@ def predict(df, model, scaler1: MinMaxScaler, cur_date):
     predicted_df['truck_capacity'] = predicted_df['truck_capacity'].astype(int)
     predicted_df = predicted_df.reset_index()
     predicted_df.rename(columns={'index': 'date'}, inplace=True)
+    predicted_df['date'] = predicted_df['date'].dt.date
     warehouse_evaluation = []
     truck_evaluation = []
     for i in range(len(predicted_df)):
@@ -204,6 +266,28 @@ def predict(df, model, scaler1: MinMaxScaler, cur_date):
     predicted_df['warehouse_evaluation'] = warehouse_evaluation
     predicted_df['truck_evaluation'] = truck_evaluation
     return predicted_df
+
+
+def upload_file():
+    uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
+
+    if uploaded_file is not None:
+        try:
+            df = pd.read_csv(uploaded_file)
+
+            # missing_columns = [col for col in REQUIRED_COLUMNS if col not in df.columns]
+
+            # if missing_columns:
+            #     st.error(f"The uploaded file is missing the following required columns: {', '.join(missing_columns)}")
+            # else:
+            st.success("File uploaded successfully and contains all required columns!")
+            st.session_state.df2 = df
+            st.session_state.upload_file = False
+            st.rerun()
+        except Exception as e:
+            st.error(f"An error occurred while processing the file: {e}")
+    else:
+        st.info("Please upload a CSV file.")
 
 
 def toggle_figure():
@@ -217,29 +301,40 @@ def toggle_predict():
 def page_1():
     # Display the DataFrame
     st.write("### Data:")
-    st.dataframe(st.session_state.df)
+    # if st.session_state.df2 is None:
+    #     st.dataframe(st.session_state.df.sort_values(by='date', ascending=False))
+    # else:
+    st.dataframe(st.session_state.df2)
 
     # 1. ADD ROW
 
-    # Button to trigger the "modal"
-    if st.button("Add row"):
-        st.session_state.add_row = True
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Add row"):
+            st.session_state.add_row = True
 
-    if st.session_state.get("add_row", False):
-        add_row()
+        if st.session_state.get("add_row", False):
+            add_row()
+    with col2:
+        if st.button("Upload a csv file"):
+            st.session_state.upload_file = True
+        if st.session_state.get("upload_file", False):
+            upload_file()
 
-    if st.button("Visualize"):
-        toggle_figure()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Visualize"):
+            toggle_figure()
 
-    if st.session_state.visualize:
-        fig = visualize(st.session_state.df)
+        if st.session_state.visualize:
+            fig = visualize_with_ex(st.session_state.df)
 
-        st.session_state.figure = fig
+            st.session_state.figure = fig
 
-        st.write('### Visualize:')
-        st.pyplot(st.session_state.figure)
+            st.write('### Visualize:')
+            st.plotly_chart(st.session_state.figure)
 
-        # st.rerun()
+            # st.rerun()
 
     if st.button("Predict"):
         toggle_predict()
@@ -250,9 +345,9 @@ def page_1():
         df_pred_rnn = predict(st.session_state.df, model_rnn, sc, cur_date=current_date)
         df_pred_gru = predict(st.session_state.df, model_gru, sc, cur_date=current_date)
 
-        lstm_fig = visualize(st.session_state.df, df_pred_lstm)
-        rnn_fig = visualize(st.session_state.df, df_pred_rnn)
-        gru_fig = visualize(st.session_state.df, df_pred_gru)
+        lstm_fig = visualize_with_ex(st.session_state.df, df_pred_lstm)
+        rnn_fig = visualize_with_ex(st.session_state.df, df_pred_rnn)
+        gru_fig = visualize_with_ex(st.session_state.df, df_pred_gru)
 
         st.session_state.lstm_fig = lstm_fig
         st.session_state.rnn_fig = rnn_fig
@@ -261,26 +356,29 @@ def page_1():
         col1, col2 = st.columns(2)
         with col1:
             st.write("### Prediction using LSTM model")
-            st.pyplot(st.session_state.lstm_fig)
+            st.plotly_chart(st.session_state.lstm_fig)
 
         with col2:
-            st.dataframe(df_pred_lstm[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation', 'truck_evaluation']])
+            st.dataframe(df_pred_lstm[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation',
+                                       'truck_evaluation']])
 
         col1, col2 = st.columns(2)
         with col1:
             st.write("### Prediction using RNN model")
-            st.pyplot(st.session_state.rnn_fig)
+            st.plotly_chart(st.session_state.rnn_fig)
 
         with col2:
-            st.dataframe(df_pred_rnn[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation', 'truck_evaluation']])
+            st.dataframe(df_pred_rnn[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation',
+                                      'truck_evaluation']])
 
         col1, col2 = st.columns(2)
         with col1:
             st.write("### Prediction using GRU model")
-            st.pyplot(st.session_state.gru_fig)
+            st.plotly_chart(st.session_state.gru_fig)
 
         with col2:
-            st.dataframe(df_pred_gru[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation', 'truck_evaluation']])
+            st.dataframe(df_pred_gru[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation',
+                                      'truck_evaluation']])
 
 
 def page_2():
@@ -298,6 +396,9 @@ def main():
         # df = pd.DataFrame(columns=columns)
         # df.set_index("date", inplace=True)
         st.session_state.df = fetch_data()
+
+    if 'df2' not in st.session_state:
+        st.session_state.df2 = pd.read_csv("meal_data.csv")
 
     if 'page_2_df' not in st.session_state:
         st.session_state.page_2_df = pd.DataFrame(columns=columns)
