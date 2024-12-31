@@ -1,10 +1,6 @@
-*.csv
 __pycache__
 main.py
 test.py
 temp.py
 .idea
-*.h5
-*.pkl
 .ipynb_checkpoints
-model1/
