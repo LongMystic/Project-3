@@ -24,7 +24,7 @@ connection = pymysql.connect(
 
 st.set_page_config("Warehouse Forecasting", layout="wide")
 
-REQUIRED_COLUMNS = ["warehouse_capacity", "truck_capacity", "date"]
+REQUIRED_COLUMNS = ["Unit quantity", "Weight", "Truck Count", "Daily Capacity"]
 
 @st.cache_resource
 def load_lstm_model():
@@ -44,9 +44,10 @@ def load_gru_model():
 model_lstm = load_lstm_model()
 model_rnn = load_rnn_model()
 model_gru = load_gru_model()
-sc = joblib.load("scaler.pkl")
 
 columns = ['price', 'warehouse_capacity', 'truck_capacity', 'date']
+drop_columns = ['Order ID', 'Origin Port', 'Plant ID', 'Daily Capacity ', 'Plant Code', 'Destination Port', 'Carrier', 'Customer', 'Service Level'] # 9
+numeric_columns = ['TPT', 'Ship ahead day count', 'Ship Late Day count', 'Product ID', 'Unit quantity', 'Weight', 'Truck Count'] # 7
 
 
 def insert_row_to_db():
@@ -133,38 +134,24 @@ def visualize_with_ex(df, df_pred=None):
 
     # Add lines for warehouse and truck capacity
     fig.add_trace(go.Scatter(
-        x=df['date'],
-        y=df['warehouse_capacity'],
+        x=df['Order Date'],
+        y=df['Unit quantity'],
         mode='lines+markers',
-        name='warehouse_capacity',
+        name='Unit quantity',
         marker=dict(symbol='circle')
     ))
 
-    fig.add_trace(go.Scatter(
-        x=df['date'],
-        y=df['truck_capacity'],
-        mode='lines+markers',
-        name='truck_capacity',
-        marker=dict(symbol='x')
-    ))
 
     # Add prediction lines if provided
     if df_pred is not None:
         fig.add_trace(go.Scatter(
-            x=df_pred['date'],
-            y=df_pred['warehouse_capacity'],
+            x=df_pred['Order Date'],
+            y=df_pred['Unit quantity'],
             mode='lines+markers',
-            name='warehouse_capacity_prediction',
+            name='Unit quantity_prediction',
             marker=dict(symbol='circle')
         ))
 
-        fig.add_trace(go.Scatter(
-            x=df_pred['date'],
-            y=df_pred['truck_capacity'],
-            mode='lines+markers',
-            name='truck_capacity_prediction',
-            marker=dict(symbol='x')
-        ))
 
     # Update layout for better appearance
     fig.update_layout(
@@ -181,15 +168,15 @@ def visualize_with_ex(df, df_pred=None):
 def visualize(df, df_pred=None):
     df = df.tail(30)
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(df['date'], df['warehouse_capacity'], label='warehouse_capacity', marker='o')
-    ax.plot(df['date'], df['truck_capacity'], label='truck_capacity', marker='x')
+    ax.plot(df['Order Date'], df['warehouse_capacity'], label='warehouse_capacity', marker='o')
+    ax.plot(df['Order Date'], df['truck_capacity'], label='truck_capacity', marker='x')
 
     if df_pred is not None:
-        ax.plot(df_pred['date'], df_pred['warehouse_capacity'], label='warehouse_capacity_prediction', marker='o')
-        ax.plot(df_pred['date'], df_pred['truck_capacity'], label='truck_capacity_prediction', marker='x')
+        ax.plot(df_pred['Order Date'], df_pred['warehouse_capacity'], label='warehouse_capacity_prediction', marker='o')
+        ax.plot(df_pred['Order Date'], df_pred['truck_capacity'], label='truck_capacity_prediction', marker='x')
 
     # Adding labels and title
-    ax.set_xlabel('Date')
+    ax.set_xlabel('Order Date')
     ax.set_ylabel('Value')
     ax.set_title('Capacity Over Time')
     ax.legend()
@@ -216,21 +203,23 @@ def evaluate(avg_30, avg_5, val):
             return 'Shortage'
 
 
-def predict(df, model, scaler1: MinMaxScaler, cur_date):
+def predict(_df, model):
+    df = _df.copy()
     # Predict the next 14 days
-    df = df[['date', 'warehouse_capacity', 'truck_capacity']]
+    print(df.columns)
+    df['Order Date'] = pd.to_datetime(df['Order Date'])
+    df.set_index('Order Date', inplace=True)
+    df = df[numeric_columns]
 
-    average_last_30 = df[['warehouse_capacity', 'truck_capacity']].iloc[-30:].mean()
+    average_last_30 = df[['Unit quantity']].iloc[-30:].mean()
 
-    average_last_5 = df[['warehouse_capacity', 'truck_capacity']].iloc[-5:].mean()
+    average_last_5 = df[['Unit quantity']].iloc[-5:].mean()
 
-    average_warehouse_last_30 = average_last_30['warehouse_capacity']
-    average_truck_last_30 = average_last_30['truck_capacity']
+    average_warehouse_last_30 = average_last_30['Unit quantity']
 
-    average_warehouse_last_5 = average_last_5['warehouse_capacity']
-    average_truck_last_5 = average_last_5['truck_capacity']
+    average_warehouse_last_5 = average_last_5['Unit quantity']
 
-    df.set_index('date', inplace=True)
+
     scaler = MinMaxScaler()
     scaled_data = scaler.fit_transform(df)
     last_sequence = scaled_data[-5:]
@@ -246,19 +235,14 @@ def predict(df, model, scaler1: MinMaxScaler, cur_date):
 
     predicted_df = pd.DataFrame(predicted, columns=df.columns)
     predicted_df.index = pd.date_range(start=df.index[-1] + pd.Timedelta(days=1), periods=predict_days)
-    predicted_df['warehouse_capacity'] = predicted_df['warehouse_capacity'].astype(int)
-    predicted_df['truck_capacity'] = predicted_df['truck_capacity'].astype(int)
+    predicted_df['Unit quantity'] = predicted_df['Unit quantity'].astype(int)
     predicted_df = predicted_df.reset_index()
-    predicted_df.rename(columns={'index': 'date'}, inplace=True)
+    predicted_df.rename(columns={'index': 'Order Date'}, inplace=True)
     warehouse_evaluation = []
-    truck_evaluation = []
     for i in range(len(predicted_df)):
         warehouse_evaluation.append(evaluate(average_warehouse_last_30, average_warehouse_last_5,
-                                             predicted_df.iloc[i]['warehouse_capacity']))
-        truck_evaluation.append(evaluate(average_truck_last_30, average_truck_last_5,
-                                         predicted_df.iloc[i]['truck_capacity']))
-    predicted_df['warehouse_evaluation'] = warehouse_evaluation
-    predicted_df['truck_evaluation'] = truck_evaluation
+                                             predicted_df.iloc[i]['Unit quantity']))
+    predicted_df['Unit quantity_evaluation'] = warehouse_evaluation
     return predicted_df
 
 
@@ -325,14 +309,17 @@ def page_1():
 
             # st.rerun()
 
-    if st.button("Predict"):
-        toggle_predict()
+    with col1:
+        model_name = st.selectbox('Choose a model:', ['RNN', 'LSTM', 'GRU'])
 
-    current_date = pd.to_datetime(st.session_state.df['date']).max()
+    with col2:
+        if st.button("Predict"):
+            toggle_predict()
+
     if st.session_state.predict:
-        df_pred_lstm = predict(st.session_state.df, model_lstm, sc, cur_date=current_date)
-        df_pred_rnn = predict(st.session_state.df, model_rnn, sc, cur_date=current_date)
-        df_pred_gru = predict(st.session_state.df, model_gru, sc, cur_date=current_date)
+        df_pred_lstm = predict(st.session_state.df, model_lstm)
+        df_pred_rnn = predict(st.session_state.df, model_rnn)
+        df_pred_gru = predict(st.session_state.df, model_gru)
 
         lstm_fig = visualize_with_ex(st.session_state.df, df_pred_lstm)
         rnn_fig = visualize_with_ex(st.session_state.df, df_pred_rnn)
@@ -348,7 +335,7 @@ def page_1():
             st.plotly_chart(st.session_state.lstm_fig)
 
         with col2:
-            st.dataframe(df_pred_lstm[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation', 'truck_evaluation']])
+            st.dataframe(df_pred_lstm[['Order Date', 'Unit quantity', 'Unit quantity_evaluation']])
 
         col1, col2 = st.columns(2)
         with col1:
@@ -356,7 +343,7 @@ def page_1():
             st.plotly_chart(st.session_state.rnn_fig)
 
         with col2:
-            st.dataframe(df_pred_rnn[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation', 'truck_evaluation']])
+            st.dataframe(df_pred_rnn[['Order Date', 'Unit quantity', 'Unit quantity_evaluation']])
 
         col1, col2 = st.columns(2)
         with col1:
@@ -364,7 +351,7 @@ def page_1():
             st.plotly_chart(st.session_state.gru_fig)
 
         with col2:
-            st.dataframe(df_pred_gru[['date', 'warehouse_capacity', 'truck_capacity', 'warehouse_evaluation', 'truck_evaluation']])
+            st.dataframe(df_pred_gru[['Order Date', 'Unit quantity', 'Unit quantity_evaluation']])
 
 
 def page_2():
@@ -381,7 +368,8 @@ def main():
     if 'df' not in st.session_state:
         # df = pd.DataFrame(columns=columns)
         # df.set_index("date", inplace=True)
-        st.session_state.df = fetch_data()
+        # st.session_state.df = fetch_data()
+        st.session_state.df = pd.read_csv('./data/cleaned_data.csv')
 
     if 'page_2_df' not in st.session_state:
         st.session_state.page_2_df = pd.DataFrame(columns=columns)
