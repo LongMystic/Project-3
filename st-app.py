@@ -3,7 +3,6 @@ import time
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pymysql.cursors
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 import joblib
@@ -12,19 +11,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 from validator import validate_date, validate_price, validate_warehouse_capacity, validate_truck_capacity
 
-from keras.models import load_model
-
-connection = pymysql.connect(
-    host='localhost',
-    user='root',
-    password='Liquid@123',
-    database='prj3',
-    cursorclass=pymysql.cursors.DictCursor
-)
+from keras.api.models import load_model
 
 st.set_page_config("Warehouse Forecasting", layout="wide")
 
 REQUIRED_COLUMNS = ["Unit quantity", "Weight", "Truck Count", "Daily Capacity"]
+
 
 @st.cache_resource
 def load_lstm_model():
@@ -46,8 +38,10 @@ model_rnn = load_rnn_model()
 model_gru = load_gru_model()
 
 columns = ['Unit quantity', 'Weight', 'Truck Count', 'Order Date']
-drop_columns = ['Order ID', 'Origin Port', 'Plant ID', 'Daily Capacity ', 'Plant Code', 'Destination Port', 'Carrier', 'Customer', 'Service Level'] # 9
-numeric_columns = ['TPT', 'Ship ahead day count', 'Ship Late Day count', 'Product ID', 'Unit quantity', 'Weight', 'Truck Count'] # 7
+drop_columns = ['Order ID', 'Origin Port', 'Plant ID', 'Daily Capacity ', 'Plant Code', 'Destination Port', 'Carrier',
+                'Customer', 'Service Level']  # 9
+numeric_columns = ['TPT', 'Ship ahead day count', 'Ship Late Day count', 'Product ID', 'Unit quantity', 'Weight',
+                   'Truck Count']  # 7
 
 
 def visualize_with_ex(df, column_name, df_pred=None):
@@ -56,26 +50,46 @@ def visualize_with_ex(df, column_name, df_pred=None):
     # Create the base figure
     fig = go.Figure()
 
-    # Add lines for warehouse and truck capacity
-    fig.add_trace(go.Scatter(
-        x=df['Order Date'],
-        y=df[column_name],
-        mode='lines+markers',
-        name=column_name,
-        marker=dict(symbol='circle')
-    ))
+    if column_name == 'Unit quantity':
+        if df_pred is None:
+            fig.add_trace(go.Bar(x=df['Order Date'], y=df[column_name], name=column_name))
 
+        # Add prediction lines if provided
+        if df_pred is not None:
+            fig.add_trace(go.Bar(x=df_pred['Order Date'], y=df_pred[column_name],
+                                 name=f'{column_name} prediction'))
+    elif column_name == 'Weight':
+        if df_pred is None:
+            fig.add_trace(go.Scatter(x=df['Order Date'], y=df[column_name], fill='tozeroy', mode='none', name=column_name))
+            fig.add_trace(go.Scatter(x=df['Order Date'], y=df['Daily Capacity '], fill='tonexty', mode='none',
+                                     name='Daily Capacity'))
 
-    # Add prediction lines if provided
-    if df_pred is not None:
-        fig.add_trace(go.Scatter(
-            x=df_pred['Order Date'],
-            y=df_pred[column_name],
-            mode='lines+markers',
-            name=f'{column_name} prediction',
-            marker=dict(symbol='circle')
-        ))
+        # Add prediction lines if provided
+        if df_pred is not None:
+            fig.add_trace(
+                go.Scatter(x=df_pred['Order Date'], y=df_pred['Daily Capacity'], fill='tonexty',
+                           mode='none', name='Daily Capacity for pred'))
+            fig.add_trace(go.Scatter(x=df_pred['Order Date'], y=df_pred[column_name], fill='tozeroy', mode='none',
+                                     name=f'{column_name} prediction'))
+    else:
+        if df_pred is None:
+            fig.add_trace(go.Scatter(
+                x=df['Order Date'],
+                y=df[column_name],
+                mode='lines+markers',
+                name=column_name,
+                marker=dict(symbol='circle')
+            ))
 
+        # Add prediction lines if provided
+        if df_pred is not None:
+            fig.add_trace(go.Scatter(
+                x=df_pred['Order Date'],
+                y=df_pred[column_name],
+                mode='lines+markers',
+                name=f'{column_name} prediction',
+                marker=dict(symbol='circle')
+            ))
 
     # Update layout for better appearance
     fig.update_layout(
@@ -126,7 +140,6 @@ def predict(_df, model):
     truck_count_last_30 = average_last_5['Truck Count']
     truck_count_last_5 = average_last_5['Truck Count']
 
-
     scaler = MinMaxScaler()
     scaled_data = scaler.fit_transform(df)
     last_sequence = scaled_data[-5:]
@@ -152,14 +165,15 @@ def predict(_df, model):
     truck_count_evaluation = []
     for i in range(len(predicted_df)):
         unit_quantity_evaluation.append(evaluate(unit_quantity_last_30, unit_quantity_last_5,
-                                             predicted_df.iloc[i]['Unit quantity']))
+                                                 predicted_df.iloc[i]['Unit quantity']))
         weight_evaluation.append(evaluate(weight_last_30, weight_last_5,
-                                                 predicted_df.iloc[i]['Weight']))
+                                          predicted_df.iloc[i]['Weight']))
         truck_count_evaluation.append(evaluate(truck_count_last_30, truck_count_last_5,
-                                                 predicted_df.iloc[i]['Truck Count']))
+                                               predicted_df.iloc[i]['Truck Count']))
     predicted_df['Unit quantity evaluation'] = unit_quantity_evaluation
     predicted_df['Weight evaluation'] = weight_evaluation
     predicted_df['Truck Count evaluation'] = truck_count_evaluation
+    predicted_df['Daily Capacity'] = _df['Daily Capacity ']
     return predicted_df
 
 
@@ -268,7 +282,7 @@ def page_1():
             st.plotly_chart(st.session_state.pred_fig_weight)
 
         with col2:
-            st.dataframe(df_pred[['Order Date', 'Unit quantity', 'Weight evaluation']])
+            st.dataframe(df_pred[['Order Date', 'Weight', 'Weight evaluation']])
 
         col1, col2 = st.columns(2)
         with col1:
@@ -276,7 +290,8 @@ def page_1():
             st.plotly_chart(st.session_state.pred_fig_truck_count)
 
         with col2:
-            st.dataframe(df_pred[['Order Date', 'Unit quantity', 'Truck Count evaluation']])
+            st.dataframe(df_pred[['Order Date', 'Truck Count', 'Truck Count evaluation']])
+
 
 def main():
     if 'df' not in st.session_state:
