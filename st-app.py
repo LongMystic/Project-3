@@ -9,13 +9,12 @@ import joblib
 import json
 import plotly.express as px
 import plotly.graph_objects as go
-from validator import validate_date, validate_price, validate_warehouse_capacity, validate_truck_capacity
 
 from keras.api.models import load_model
 
 st.set_page_config("Warehouse Forecasting", layout="wide")
 
-REQUIRED_COLUMNS = ["Unit quantity", "Weight", "Truck Count", "Daily Capacity"]
+REQUIRED_COLUMNS = ["Unit quantity", "Weight", "Truck Count", "Daily Capacity "]
 
 
 @st.cache_resource
@@ -51,8 +50,7 @@ def visualize_with_ex(df, column_name, df_pred=None):
     fig = go.Figure()
 
     if column_name == 'Unit quantity':
-        if df_pred is None:
-            fig.add_trace(go.Bar(x=df['Order Date'], y=df[column_name], name=column_name))
+        fig.add_trace(go.Bar(x=df['Order Date'], y=df[column_name], name=column_name))
 
         # Add prediction lines if provided
         if df_pred is not None:
@@ -68,18 +66,17 @@ def visualize_with_ex(df, column_name, df_pred=None):
         if df_pred is not None:
             fig.add_trace(
                 go.Scatter(x=df_pred['Order Date'], y=df_pred['Daily Capacity'], fill='tonexty',
-                           mode='none', name='Daily Capacity for pred'))
+                           mode='none', name='Daily Capacity'))
             fig.add_trace(go.Scatter(x=df_pred['Order Date'], y=df_pred[column_name], fill='tozeroy', mode='none',
                                      name=f'{column_name} prediction'))
     else:
-        if df_pred is None:
-            fig.add_trace(go.Scatter(
-                x=df['Order Date'],
-                y=df[column_name],
-                mode='lines+markers',
-                name=column_name,
-                marker=dict(symbol='circle')
-            ))
+        fig.add_trace(go.Scatter(
+            x=df['Order Date'],
+            y=df[column_name],
+            mode='lines+markers',
+            name=column_name,
+            marker=dict(symbol='circle')
+        ))
 
         # Add prediction lines if provided
         if df_pred is not None:
@@ -190,7 +187,8 @@ def upload_file():
                 st.error(f"The uploaded file is missing the following required columns: {', '.join(missing_columns)}")
             else:
                 st.success("File uploaded successfully and contains all required columns!")
-                st.dataframe(df)
+                st.session_state.df = df
+                st.rerun()
         except Exception as e:
             st.error(f"An error occurred while processing the file: {e}")
     else:
